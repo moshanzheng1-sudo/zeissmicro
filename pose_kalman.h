@@ -6,6 +6,7 @@
 #include "servo_function.h"
 #include <QThread>
 #include <QMutex>
+#include <QElapsedTimer>
 #include <sbaslercameracontrol.h>
 #include <opencv2/opencv.hpp>
 #include <QImage>
@@ -81,12 +82,16 @@ public:
     QTimer* timeDecision;
     bool experimentRecording=false;
     int pendingExperimentFrames=0;
+    qulonglong experimentKeyFrameStep=0;
+    QElapsedTimer experimentMhiTimer;
+    qint64 nextExperimentMhiFrameNs=0;
 
 
 
 signals:
     void sendImage(const QImage &img );
-    void rawFrameReady(const QImage &img);
+    void mhiFrameReady(const QImage &img);
+    void keyFrameReady(const QImage &img, qulonglong triggerStep);
 
 
 

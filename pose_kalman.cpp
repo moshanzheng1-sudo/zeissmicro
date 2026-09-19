@@ -187,9 +187,17 @@ void Pose_Kalman::penetrationSiteShow(float centerX, float centerY)
 
 void Pose_Kalman::setExperimentRecording(bool enabled)
 {
+    if(enabled && !experimentRecording){
+        pendingExperimentFrames=0;
+        experimentKeyFrameStep=0;
+        nextExperimentMhiFrameNs=0;
+        experimentMhiTimer.start();
+    }
     experimentRecording=enabled;
     if(!enabled){
         pendingExperimentFrames=0;
+        nextExperimentMhiFrameNs=0;
+        experimentMhiTimer.invalidate();
     }
     if(enabled && funSelect<0){
         funSelect=4;
@@ -257,14 +265,41 @@ void Pose_Kalman::uiShow()
             /*break;*/
         }
 
-        // Keep experiment data separate from the resized/annotated preview.
-        // copy() detaches the QImage from the cv::Mat buffer before it is sent
-        // to the asynchronous recorder thread.
-        if(experimentRecording && pendingExperimentFrames>0){
-            const QImage rawFrame=MatToQImage(TrainImg);
-            if(!rawFrame.isNull()){
-                emit rawFrameReady(rawFrame.copy());
-                --pendingExperimentFrames;
+        // MHI frames are deliberately lightweight: 1024x542, grayscale and
+        // limited to 10 FPS before they enter the disk-writer queue.
+        if(experimentRecording){
+            const qint64 mhiIntervalNs=100000000LL;
+            const qint64 nowNs=experimentMhiTimer.nsecsElapsed();
+            if(nowNs>=nextExperimentMhiFrameNs){
+                Mat grayFrame;
+                if(TrainImg.channels()==1){
+                    grayFrame=TrainImg;
+                }else if(TrainImg.channels()==3){
+                    cvtColor(TrainImg,grayFrame,CV_BGR2GRAY);
+                }else if(TrainImg.channels()==4){
+                    cvtColor(TrainImg,grayFrame,CV_BGRA2GRAY);
+                }
+
+                if(!grayFrame.empty()){
+                    Mat mhiFrame;
+                    resize(grayFrame,mhiFrame,Size(1024,542),0,0,INTER_AREA);
+                    const QImage mhiImage=MatToQImage(mhiFrame);
+                    if(!mhiImage.isNull()){
+                        emit mhiFrameReady(mhiImage.copy());
+                    }
+                }
+                nextExperimentMhiFrameNs=nowNs+mhiIntervalNs;
+            }
+
+            // A completed E descent requests one full-resolution colour frame.
+            // At most one request is consumed per camera frame.
+            if(pendingExperimentFrames>0){
+                const QImage keyFrame=MatToQImage(TrainImg);
+                if(!keyFrame.isNull()){
+                    ++experimentKeyFrameStep;
+                    emit keyFrameReady(keyFrame.copy(),experimentKeyFrameStep);
+                    --pendingExperimentFrames;
+                }
             }
         }
 //        Time_Focus=((double)getTickCount()-Time_Focus)/getTickFrequency()*1000;

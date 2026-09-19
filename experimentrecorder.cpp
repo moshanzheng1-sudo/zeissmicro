@@ -46,7 +46,9 @@ ExperimentRecorderWorker::ExperimentRecorderWorker(QObject *parent)
       m_frameLog(&m_frameLogFile),
       m_motionLog(&m_motionLogFile),
       m_eventLog(&m_eventLogFile),
-      m_failedFrameCount(0)
+      m_failedFrameCount(0),
+      m_failedMhiFrameCount(0),
+      m_failedKeyFrameCount(0)
 {
     m_frameLog.setCodec("UTF-8");
     m_motionLog.setCodec("UTF-8");
@@ -88,9 +90,13 @@ QString ExperimentRecorderWorker::startTrial(const QString &rootDirectory,
         QStringLiteral("Cell_001"));
     const QString trialId = QStringLiteral("%1_Trial_01").arg(cellId);
     m_trialDirectory = QDir(experimentDirectory).filePath(trialId);
-    m_framesDirectory = QDir(m_trialDirectory).filePath(QStringLiteral("raw_frames"));
+    m_mhiFramesDirectory = QDir(m_trialDirectory).filePath(
+        QStringLiteral("mhi_frames"));
+    m_keyFramesDirectory = QDir(m_trialDirectory).filePath(
+        QStringLiteral("keyframes"));
 
-    if (!rootDir.mkpath(m_framesDirectory)) {
+    if (!rootDir.mkpath(m_mhiFramesDirectory) ||
+        !rootDir.mkpath(m_keyFramesDirectory)) {
         emit recorderError(QStringLiteral("Cannot create trial directory: %1")
                                .arg(m_trialDirectory));
         m_trialDirectory.clear();
@@ -99,7 +105,7 @@ QString ExperimentRecorderWorker::startTrial(const QString &rootDirectory,
 
     if (!openLog(m_frameLogFile, m_frameLog,
                  QDir(m_trialDirectory).filePath(QStringLiteral("frame_log.csv")),
-                 QStringLiteral("frame_id,timestamp_s,z_command,z_encoder,x_encoder,y_encoder\n")) ||
+                 QStringLiteral("frame_id,frame_type,timestamp_s,relative_path,width,height,channels,trigger_step,write_success,z_command,z_encoder,x_encoder,y_encoder\n")) ||
         !openLog(m_motionLogFile, m_motionLog,
                  QDir(m_trialDirectory).filePath(QStringLiteral("motion_log.csv")),
                  QStringLiteral("timestamp_s,z_command,z_encoder,x_encoder,y_encoder\n")) ||
@@ -117,8 +123,12 @@ QString ExperimentRecorderWorker::startTrial(const QString &rootDirectory,
     m_metadata.insert(QStringLiteral("trial_id"), trialId);
     m_metadata.insert(QStringLiteral("recording_complete"), false);
     m_metadata.insert(QStringLiteral("frame_count"), 0);
+    m_metadata.insert(QStringLiteral("mhi_frame_count"), 0);
+    m_metadata.insert(QStringLiteral("keyframe_count"), 0);
     m_metadata.insert(QStringLiteral("dropped_frame_count"), 0);
     m_failedFrameCount = 0;
+    m_failedMhiFrameCount = 0;
+    m_failedKeyFrameCount = 0;
     m_active = true;
 
     if (!writeMetadata()) {
@@ -134,7 +144,11 @@ QString ExperimentRecorderWorker::startTrial(const QString &rootDirectory,
 }
 
 void ExperimentRecorderWorker::stopTrial(qulonglong frameCount,
+                                         qulonglong mhiFrameCount,
+                                         qulonglong keyFrameCount,
                                          qulonglong droppedFrameCount,
+                                         qulonglong droppedMhiFrameCount,
+                                         qulonglong droppedKeyFrameCount,
                                          double durationSeconds)
 {
     if (!m_active) {
@@ -148,10 +162,22 @@ void ExperimentRecorderWorker::stopTrial(qulonglong frameCount,
     m_metadata.insert(QStringLiteral("recording_complete"), true);
     m_metadata.insert(QStringLiteral("frame_count"),
                       static_cast<double>(frameCount));
+    m_metadata.insert(QStringLiteral("mhi_frame_count"),
+                      static_cast<double>(mhiFrameCount));
+    m_metadata.insert(QStringLiteral("keyframe_count"),
+                      static_cast<double>(keyFrameCount));
     m_metadata.insert(QStringLiteral("dropped_frame_count"),
                       static_cast<double>(droppedFrameCount));
+    m_metadata.insert(QStringLiteral("dropped_mhi_frame_count"),
+                      static_cast<double>(droppedMhiFrameCount));
+    m_metadata.insert(QStringLiteral("dropped_keyframe_count"),
+                      static_cast<double>(droppedKeyFrameCount));
     m_metadata.insert(QStringLiteral("failed_frame_count"),
                       static_cast<double>(m_failedFrameCount));
+    m_metadata.insert(QStringLiteral("failed_mhi_frame_count"),
+                      static_cast<double>(m_failedMhiFrameCount));
+    m_metadata.insert(QStringLiteral("failed_keyframe_count"),
+                      static_cast<double>(m_failedKeyFrameCount));
     m_metadata.insert(QStringLiteral("duration_s"), durationSeconds);
     m_metadata.insert(QStringLiteral("experiment_end_time"),
                       QDateTime::currentDateTime().toString(Qt::ISODate));
@@ -167,30 +193,60 @@ void ExperimentRecorderWorker::stopTrial(qulonglong frameCount,
 void ExperimentRecorderWorker::writeFrame(const ExperimentFramePacket &packet)
 {
     if (!m_active) {
-        emit frameHandled();
+        emit frameHandled(packet.keyFrame);
         return;
     }
 
-    const QString fileName = QStringLiteral("frame_%1.png")
-                                 .arg(packet.frameId + 1, 6, 10, QLatin1Char('0'));
-    const QString path = QDir(m_framesDirectory).filePath(fileName);
-    QImageWriter writer(path, "png");
-    writer.setCompression(1);
-    if (!writer.write(packet.image)) {
+    const QString frameType = packet.keyFrame
+        ? QStringLiteral("keyframe") : QStringLiteral("mhi");
+    const QString extension = packet.keyFrame
+        ? QStringLiteral("png") : QStringLiteral("bmp");
+    const QString fileName = QStringLiteral("%1_%2.%3")
+                                 .arg(frameType)
+                                 .arg(packet.typeFrameId + 1, 6, 10,
+                                      QLatin1Char('0'))
+                                 .arg(extension);
+    const QString directory = packet.keyFrame
+        ? m_keyFramesDirectory : m_mhiFramesDirectory;
+    const QString relativePath = QStringLiteral("%1/%2")
+        .arg(packet.keyFrame ? QStringLiteral("keyframes")
+                             : QStringLiteral("mhi_frames"),
+             fileName);
+    const QString path = QDir(directory).filePath(fileName);
+    QImageWriter writer(path, extension.toLatin1());
+    if (packet.keyFrame) {
+        writer.setCompression(1);
+    }
+    const bool writeSuccess = writer.write(packet.image);
+    if (!writeSuccess) {
         ++m_failedFrameCount;
+        if (packet.keyFrame) {
+            ++m_failedKeyFrameCount;
+        } else {
+            ++m_failedMhiFrameCount;
+        }
         emit recorderError(QStringLiteral("Failed to save frame: %1").arg(path));
-        emit frameHandled();
-        return;
     }
 
     m_frameLog << packet.frameId << ','
+               << frameType << ','
                << csvNumber(secondsFromNanoseconds(packet.timestampNs)) << ','
+               << relativePath << ','
+               << packet.image.width() << ','
+               << packet.image.height() << ','
+               << packet.channels << ',';
+    if (packet.keyFrame) {
+        m_frameLog << packet.triggerStep;
+    } else {
+        m_frameLog << QStringLiteral("NaN");
+    }
+    m_frameLog << ',' << (writeSuccess ? 1 : 0) << ','
                << csvNumber(packet.zCommand) << ','
                << csvNumber(packet.zEncoder) << ','
                << csvNumber(packet.xEncoder) << ','
                << csvNumber(packet.yEncoder) << '\n';
     m_frameLog.flush();
-    emit frameHandled();
+    emit frameHandled(packet.keyFrame);
 }
 
 void ExperimentRecorderWorker::writeMotion(const ExperimentMotionPacket &packet)
@@ -263,11 +319,20 @@ ExperimentRecorder::ExperimentRecorder(QObject *parent)
       m_lastTimestampNs(-1),
       m_recording(false),
       m_nextFrameId(0),
+      m_nextMhiFrameId(0),
+      m_nextKeyFrameId(0),
       m_nearestFrameId(-1),
       m_frameCount(0),
+      m_mhiFrameCount(0),
+      m_keyFrameCount(0),
       m_droppedFrameCount(0),
+      m_droppedMhiFrameCount(0),
+      m_droppedKeyFrameCount(0),
       m_pendingFrames(0),
-      m_maxPendingFrames(16),
+      m_pendingMhiFrames(0),
+      m_pendingKeyFrames(0),
+      m_maxPendingMhiFrames(16),
+      m_maxPendingKeyFrames(8),
       m_zCommand(std::numeric_limits<double>::quiet_NaN()),
       m_zEncoder(std::numeric_limits<double>::quiet_NaN()),
       m_xEncoder(std::numeric_limits<double>::quiet_NaN()),
@@ -350,10 +415,18 @@ bool ExperimentRecorder::startTrial(const QString &rootDirectory)
         m_trialDirectory = directory;
         m_trialId = QFileInfo(directory).fileName();
         m_nextFrameId = 0;
+        m_nextMhiFrameId = 0;
+        m_nextKeyFrameId = 0;
         m_nearestFrameId = -1;
         m_frameCount = 0;
+        m_mhiFrameCount = 0;
+        m_keyFrameCount = 0;
         m_droppedFrameCount = 0;
+        m_droppedMhiFrameCount = 0;
+        m_droppedKeyFrameCount = 0;
         m_pendingFrames = 0;
+        m_pendingMhiFrames = 0;
+        m_pendingKeyFrames = 0;
         m_zCommand = std::numeric_limits<double>::quiet_NaN();
         m_zEncoder = std::numeric_limits<double>::quiet_NaN();
         m_xEncoder = std::numeric_limits<double>::quiet_NaN();
@@ -372,7 +445,11 @@ bool ExperimentRecorder::startTrial(const QString &rootDirectory)
 void ExperimentRecorder::stopTrial()
 {
     qulonglong frames = 0;
+    qulonglong mhiFrames = 0;
+    qulonglong keyFrames = 0;
     qulonglong dropped = 0;
+    qulonglong droppedMhi = 0;
+    qulonglong droppedKey = 0;
     double duration = 0.0;
     {
         QMutexLocker locker(&m_mutex);
@@ -381,14 +458,25 @@ void ExperimentRecorder::stopTrial()
         }
         duration = secondsFromNanoseconds(nextTimestampNsLocked());
         m_recording = false;
+        while (m_pendingFrames > 0) {
+            m_pendingFramesFinished.wait(&m_mutex);
+        }
         frames = m_frameCount;
+        mhiFrames = m_mhiFrameCount;
+        keyFrames = m_keyFrameCount;
         dropped = m_droppedFrameCount;
+        droppedMhi = m_droppedMhiFrameCount;
+        droppedKey = m_droppedKeyFrameCount;
     }
 
     QMetaObject::invokeMethod(
         m_worker, "stopTrial", Qt::BlockingQueuedConnection,
         Q_ARG(qulonglong, frames),
+        Q_ARG(qulonglong, mhiFrames),
+        Q_ARG(qulonglong, keyFrames),
         Q_ARG(qulonglong, dropped),
+        Q_ARG(qulonglong, droppedMhi),
+        Q_ARG(qulonglong, droppedKey),
         Q_ARG(double, duration));
     emit recordingChanged(false);
 }
@@ -432,7 +520,19 @@ QString ExperimentRecorder::trialId() const
     return m_trialId;
 }
 
-void ExperimentRecorder::recordFrame(const QImage &image)
+void ExperimentRecorder::recordMhiFrame(const QImage &image)
+{
+    recordFrame(image, false, 0);
+}
+
+void ExperimentRecorder::recordKeyFrame(const QImage &image,
+                                        qulonglong triggerStep)
+{
+    recordFrame(image, true, triggerStep);
+}
+
+void ExperimentRecorder::recordFrame(const QImage &image, bool keyFrame,
+                                     qulonglong triggerStep)
 {
     qulonglong count = 0;
     qulonglong dropped = 0;
@@ -443,21 +543,41 @@ void ExperimentRecorder::recordFrame(const QImage &image)
         if (!m_recording || image.isNull()) {
             return;
         }
-        if (m_pendingFrames >= m_maxPendingFrames) {
+        const bool queueFull = keyFrame
+            ? m_pendingKeyFrames >= m_maxPendingKeyFrames
+            : m_pendingMhiFrames >= m_maxPendingMhiFrames;
+        if (queueFull) {
             ++m_droppedFrameCount;
+            if (keyFrame) {
+                ++m_droppedKeyFrameCount;
+            } else {
+                ++m_droppedMhiFrameCount;
+            }
             dropped = m_droppedFrameCount;
             overflow = true;
         } else {
             ExperimentFramePacket packet;
             packet.image = image;
             packet.frameId = m_nextFrameId++;
+            packet.typeFrameId = keyFrame
+                ? m_nextKeyFrameId++ : m_nextMhiFrameId++;
             packet.timestampNs = nextTimestampNsLocked();
+            packet.keyFrame = keyFrame;
+            packet.triggerStep = triggerStep;
+            packet.channels = keyFrame ? qMax(1, image.depth() / 8) : 1;
             packet.zCommand = m_zCommand;
             packet.zEncoder = m_zEncoder;
             packet.xEncoder = m_xEncoder;
             packet.yEncoder = m_yEncoder;
             m_nearestFrameId = static_cast<qlonglong>(packet.frameId);
             ++m_frameCount;
+            if (keyFrame) {
+                ++m_keyFrameCount;
+                ++m_pendingKeyFrames;
+            } else {
+                ++m_mhiFrameCount;
+                ++m_pendingMhiFrames;
+            }
             ++m_pendingFrames;
             count = m_frameCount;
             emit writeFrameRequested(packet);
@@ -512,11 +632,19 @@ void ExperimentRecorder::markEvent(const QString &event)
     emit writeEventRequested(packet);
 }
 
-void ExperimentRecorder::onFrameHandled()
+void ExperimentRecorder::onFrameHandled(bool keyFrame)
 {
     QMutexLocker locker(&m_mutex);
     if (m_pendingFrames > 0) {
         --m_pendingFrames;
+    }
+    if (keyFrame && m_pendingKeyFrames > 0) {
+        --m_pendingKeyFrames;
+    } else if (!keyFrame && m_pendingMhiFrames > 0) {
+        --m_pendingMhiFrames;
+    }
+    if (m_pendingFrames == 0) {
+        m_pendingFramesFinished.wakeAll();
     }
 }
 

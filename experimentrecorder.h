@@ -9,12 +9,17 @@
 #include <QObject>
 #include <QTextStream>
 #include <QThread>
+#include <QWaitCondition>
 
 struct ExperimentFramePacket
 {
     QImage image;
     qulonglong frameId;
+    qulonglong typeFrameId;
     qint64 timestampNs;
+    bool keyFrame;
+    qulonglong triggerStep;
+    int channels;
     double zCommand;
     double zEncoder;
     double xEncoder;
@@ -53,7 +58,11 @@ public:
     Q_INVOKABLE QString startTrial(const QString &rootDirectory,
                                    const QJsonObject &metadata);
     Q_INVOKABLE void stopTrial(qulonglong frameCount,
+                               qulonglong mhiFrameCount,
+                               qulonglong keyFrameCount,
                                qulonglong droppedFrameCount,
+                               qulonglong droppedMhiFrameCount,
+                               qulonglong droppedKeyFrameCount,
                                double durationSeconds);
 
 public slots:
@@ -62,7 +71,7 @@ public slots:
     void writeEvent(const ExperimentEventPacket &packet);
 
 signals:
-    void frameHandled();
+    void frameHandled(bool keyFrame);
     void recorderError(const QString &message);
 
 private:
@@ -73,7 +82,8 @@ private:
 
     bool m_active;
     QString m_trialDirectory;
-    QString m_framesDirectory;
+    QString m_mhiFramesDirectory;
+    QString m_keyFramesDirectory;
     QFile m_frameLogFile;
     QFile m_motionLogFile;
     QFile m_eventLogFile;
@@ -82,6 +92,8 @@ private:
     QTextStream m_eventLog;
     QJsonObject m_metadata;
     qulonglong m_failedFrameCount;
+    qulonglong m_failedMhiFrameCount;
+    qulonglong m_failedKeyFrameCount;
 };
 
 class ExperimentRecorder : public QObject
@@ -104,7 +116,8 @@ public:
     QString trialId() const;
 
 public slots:
-    void recordFrame(const QImage &image);
+    void recordMhiFrame(const QImage &image);
+    void recordKeyFrame(const QImage &image, qulonglong triggerStep);
     void recordMotionCommand(double zCommandUm);
     void recordMotionData(double zEncoderUm, double xEncoderUm,
                           double yEncoderUm);
@@ -120,22 +133,33 @@ signals:
     void recorderError(const QString &message);
 
 private slots:
-    void onFrameHandled();
+    void onFrameHandled(bool keyFrame);
 
 private:
     qint64 nextTimestampNsLocked();
     ExperimentMotionPacket motionPacketLocked(qint64 timestampNs) const;
+    void recordFrame(const QImage &image, bool keyFrame,
+                     qulonglong triggerStep);
 
     mutable QMutex m_mutex;
     QElapsedTimer m_elapsedTimer;
     qint64 m_lastTimestampNs;
     bool m_recording;
     qulonglong m_nextFrameId;
+    qulonglong m_nextMhiFrameId;
+    qulonglong m_nextKeyFrameId;
     qlonglong m_nearestFrameId;
     qulonglong m_frameCount;
+    qulonglong m_mhiFrameCount;
+    qulonglong m_keyFrameCount;
     qulonglong m_droppedFrameCount;
+    qulonglong m_droppedMhiFrameCount;
+    qulonglong m_droppedKeyFrameCount;
     int m_pendingFrames;
-    int m_maxPendingFrames;
+    int m_pendingMhiFrames;
+    int m_pendingKeyFrames;
+    int m_maxPendingMhiFrames;
+    int m_maxPendingKeyFrames;
     double m_zCommand;
     double m_zEncoder;
     double m_xEncoder;
@@ -143,6 +167,7 @@ private:
     QJsonObject m_metadata;
     QString m_trialDirectory;
     QString m_trialId;
+    QWaitCondition m_pendingFramesFinished;
 
     QThread m_workerThread;
     ExperimentRecorderWorker *m_worker;

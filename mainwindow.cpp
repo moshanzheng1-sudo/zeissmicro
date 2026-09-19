@@ -74,8 +74,11 @@ MainWindow::MainWindow(QWidget *parent) :
 
     /*实验原始数据记录：采集线程只复制并投递帧，磁盘写入在独立线程完成。*/
     experimentRecorder=new ExperimentRecorder(this);
-    connect(decision_task->imageCollect,&Pose_Kalman::rawFrameReady,
-            experimentRecorder,&ExperimentRecorder::recordFrame,
+    connect(decision_task->imageCollect,&Pose_Kalman::mhiFrameReady,
+            experimentRecorder,&ExperimentRecorder::recordMhiFrame,
+            Qt::DirectConnection);
+    connect(decision_task->imageCollect,&Pose_Kalman::keyFrameReady,
+            experimentRecorder,&ExperimentRecorder::recordKeyFrame,
             Qt::DirectConnection);
     connect(decision_task->pose_plane,&Pose_Plane::sendTargetPose,
             experimentRecorder,
@@ -764,6 +767,14 @@ void MainWindow::on_startRecording_clicked()
     metadata.insert(QStringLiteral("magnification"),ui->lensMagnify->currentText());
     metadata.insert(QStringLiteral("camera_fps"),QJsonValue::Null);
     metadata.insert(QStringLiteral("exposure"),QJsonValue::Null);
+    metadata.insert(QStringLiteral("mhi_target_fps"),10);
+    metadata.insert(QStringLiteral("mhi_width"),1024);
+    metadata.insert(QStringLiteral("mhi_height"),542);
+    metadata.insert(QStringLiteral("mhi_channels"),1);
+    metadata.insert(QStringLiteral("mhi_format"),QStringLiteral("BMP"));
+    metadata.insert(QStringLiteral("keyframe_format"),QStringLiteral("PNG"));
+    metadata.insert(QStringLiteral("keyframe_trigger"),
+                    QStringLiteral("First camera frame after a completed E descent"));
     metadata.insert(QStringLiteral("approach_speed_um_s"),
                     decision_task->pose_plane->manualSpeed);
     metadata.insert(QStringLiteral("tip_angle_deg"),
@@ -785,9 +796,6 @@ void MainWindow::on_startRecording_clicked()
                               "setExperimentRecording",
                               Qt::QueuedConnection,
                               Q_ARG(bool,true));
-    QMetaObject::invokeMethod(decision_task->imageCollect,
-                              "requestExperimentFrame",
-                              Qt::QueuedConnection);
     ui->recordingStatusLabel->setText(QStringLiteral("ON"));
     ui->trialIdValueLabel->setText(experimentRecorder->trialId());
     ui->frameCountValueLabel->setText(QStringLiteral("0"));
