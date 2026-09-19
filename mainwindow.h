@@ -10,6 +10,7 @@
 #include <QMainWindow>
 #include "decision_task.h"
 
+class ExperimentRecorder;
 
 namespace Ui {
 class MainWindow;
@@ -163,11 +164,23 @@ private slots:
 
     void on_lineComboBox_currentIndexChanged(int index);
 
+    void on_startRecording_clicked();
+
+    void on_stopRecording_clicked();
+
+    void updateRecordingUi();
+
+    void handleRecorderError(const QString &message);
+
+    void markContactEvent();
+
 private:
     Ui::MainWindow *ui;
      QTimer* timer;
      QMatrix m_matrix;
      QLabel *stateLabel;
+     ExperimentRecorder *experimentRecorder;
+     QTimer *recordingUiTimer;
 
      double voltagekk=0.01;
      double motorPulse=0;

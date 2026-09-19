@@ -185,6 +185,14 @@ void Pose_Kalman::penetrationSiteShow(float centerX, float centerY)
     tipPosition.y=centerY;
 }
 
+void Pose_Kalman::setExperimentRecording(bool enabled)
+{
+    experimentRecording=enabled;
+    if(enabled && funSelect<0){
+        funSelect=4;
+    }
+}
+
 
 void Pose_Kalman::receiveNowInfo(double timeControl,double current,int x,int y,int z,int d,double sendVol,double sendFre){
     timeNow=timeControl;
@@ -237,6 +245,16 @@ void Pose_Kalman::uiShow()
         {
 //            std::cout << "Grab image failed " << std::endl;
             /*break;*/
+        }
+
+        // Keep experiment data separate from the resized/annotated preview.
+        // copy() detaches the QImage from the cv::Mat buffer before it is sent
+        // to the asynchronous recorder thread.
+        if(experimentRecording){
+            const QImage rawFrame=MatToQImage(TrainImg);
+            if(!rawFrame.isNull()){
+                emit rawFrameReady(rawFrame.copy());
+            }
         }
 //        Time_Focus=((double)getTickCount()-Time_Focus)/getTickFrequency()*1000;
 

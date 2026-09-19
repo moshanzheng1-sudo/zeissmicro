@@ -22,6 +22,7 @@ DEFINES += WIN32_LEAN_AND_MEAN
 
 SOURCES += main.cpp\
         mainwindow.cpp \
+    experimentrecorder.cpp \
     line2Dup.cpp \
     multiclampcurve.cpp \
     patchclamp.cpp \
@@ -38,6 +39,7 @@ SOURCES += main.cpp\
     positioning_tip.cpp
 
 HEADERS  += mainwindow.h \
+    experimentrecorder.h \
     line2Dup.h \
     multiclampcurve.h \
     patchclamp.h \

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1238</width>
-    <height>710</height>
+    <height>855</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -44,7 +44,7 @@
       <item>
        <widget class="QStackedWidget" name="stackedWidget">
         <property name="currentIndex">
-         <number>2</number>
+         <number>1</number>
         </property>
         <widget class="QWidget" name="page_3">
          <layout class="QVBoxLayout" name="verticalLayout_3">
@@ -1087,6 +1087,92 @@
         </widget>
        </widget>
       </item>
+      <item>
+       <widget class="QGroupBox" name="experimentRecordingGroup">
+        <property name="title">
+         <string>Experiment Recording</string>
+        </property>
+        <layout class="QGridLayout" name="experimentRecordingLayout">
+         <item row="0" column="0">
+          <widget class="QPushButton" name="startRecording">
+           <property name="text">
+            <string>Start Recording</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QPushButton" name="stopRecording">
+           <property name="text">
+            <string>Stop Recording</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="recordingStatusTitleLabel">
+           <property name="text">
+            <string>Recording:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="recordingStatusLabel">
+           <property name="text">
+            <string>OFF</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="trialIdTitleLabel">
+           <property name="text">
+            <string>Trial ID:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="trialIdValueLabel">
+           <property name="text">
+            <string>-</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="frameCountTitleLabel">
+           <property name="text">
+            <string>Frame Count:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLabel" name="frameCountValueLabel">
+           <property name="text">
+            <string>0</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="elapsedTimeTitleLabel">
+           <property name="text">
+            <string>Elapsed:</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QLabel" name="elapsedTimeValueLabel">
+           <property name="text">
+            <string>0.000 s</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0" colspan="2">
+          <widget class="QLabel" name="contactShortcutLabel">
+           <property name="text">
+            <string>Space = Mark Contact</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
      </layout>
     </item>
     <item>
@@ -1122,7 +1208,7 @@
      <x>0</x>
      <y>0</y>
      <width>1238</width>
-     <height>23</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">

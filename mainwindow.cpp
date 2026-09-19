@@ -10,12 +10,15 @@
 #include <QtSerialPort/QSerialPortInfo>
 #include <QMouseEvent>
 #include "mylabel.h"
+#include "experimentrecorder.h"
 
 
 #include <QtGui>
 #include <QtWidgets>
 #include <QtCharts>
 #include <iostream>
+#include <QJsonObject>
+#include <limits>
 
 
 
@@ -69,6 +72,39 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(decision_task->A_Focus,&Auto_Focus::sendPenetration,decision_task->pose_plane,&Pose_Plane::penetrationSleepChange);
     connect(decision_task->A_Focus,&Auto_Focus::sendPenetration,decision_task->imageCollect,&Pose_Kalman::uiShowOpen);
 
+    /*实验原始数据记录：采集线程只复制并投递帧，磁盘写入在独立线程完成。*/
+    experimentRecorder=new ExperimentRecorder(this);
+    connect(decision_task->imageCollect,&Pose_Kalman::rawFrameReady,
+            experimentRecorder,&ExperimentRecorder::recordFrame,
+            Qt::DirectConnection);
+    connect(decision_task->pose_plane,&Pose_Plane::sendTargetPose,
+            experimentRecorder,
+            [this](int, int, int z, int){
+                const double zCommand = z == 0
+                    ? std::numeric_limits<double>::quiet_NaN()
+                    : static_cast<double>(z) / 1000.0;
+                experimentRecorder->recordMotionCommand(zCommand);
+            }, Qt::DirectConnection);
+    connect(decision_task->ch_instrument,&Ch_Instrument::sendNowInfo,
+            experimentRecorder,
+            [this](double, double, int x, int y, int z, int, double, double){
+                experimentRecorder->recordMotionData(
+                    static_cast<double>(z) / 1000.0,
+                    static_cast<double>(x) / 1000.0,
+                    static_cast<double>(y) / 1000.0);
+            }, Qt::DirectConnection);
+    connect(experimentRecorder,&ExperimentRecorder::recorderError,
+            this,&MainWindow::handleRecorderError,Qt::QueuedConnection);
+    recordingUiTimer=new QTimer(this);
+    recordingUiTimer->setInterval(100);
+    connect(recordingUiTimer,&QTimer::timeout,this,&MainWindow::updateRecordingUi);
+    recordingUiTimer->start();
+    ui->stopRecording->setEnabled(false);
+    QShortcut *contactShortcut=new QShortcut(QKeySequence(Qt::Key_Space),this);
+    contactShortcut->setContext(Qt::WindowShortcut);
+    connect(contactShortcut,&QShortcut::activated,
+            this,&MainWindow::markContactEvent);
+
 
     /*颜色调整*/
     ui->stackedWidget->setCurrentWidget(ui->page);
@@ -93,6 +129,13 @@ MainWindow::MainWindow(QWidget *parent) :
 
 MainWindow::~MainWindow()
 {
+    if(experimentRecorder && experimentRecorder->isRecording()){
+        QMetaObject::invokeMethod(decision_task->imageCollect,
+                                  "setExperimentRecording",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(bool,false));
+        experimentRecorder->stopTrial();
+    }
     delete ui;
 }
 
@@ -694,12 +737,104 @@ void MainWindow::keyPressEvent(QKeyEvent * event)
          decision_task->pose_plane->manualDistace=100;
          decision_task->pose_plane->manualSpeed=500;
      break;
-    case Qt::Key_Space:
-//        KeyFlagUP=1;
-//        KeyFlagDOWN=1;
-        qDebug()<<"chongzhi"<<endl;
-        break;
     }
+}
+
+void MainWindow::on_startRecording_clicked()
+{
+    if(experimentRecorder->isRecording()){
+        return;
+    }
+
+    QJsonObject metadata;
+    metadata.insert(QStringLiteral("cell_id"),QString());
+    metadata.insert(QStringLiteral("cell_type"),QStringLiteral("HeLa"));
+    metadata.insert(QStringLiteral("tip_id"),QString());
+    metadata.insert(QStringLiteral("tip_diameter_um"),QJsonValue::Null);
+    metadata.insert(QStringLiteral("magnification"),ui->lensMagnify->currentText());
+    metadata.insert(QStringLiteral("camera_fps"),QJsonValue::Null);
+    metadata.insert(QStringLiteral("exposure"),QJsonValue::Null);
+    metadata.insert(QStringLiteral("approach_speed_um_s"),
+                    decision_task->pose_plane->manualSpeed);
+    metadata.insert(QStringLiteral("tip_angle_deg"),
+                    decision_task->pose_plane->angleD*180.0/3.14159265358979323846);
+    metadata.insert(QStringLiteral("contact_position"),QString());
+    metadata.insert(QStringLiteral("z_command_semantics"),
+                    QStringLiteral("Raw Pose_Plane sendTargetPose Z value; manual moves are relative steps"));
+    metadata.insert(QStringLiteral("encoder_source"),
+                    QStringLiteral("Ch_Instrument sendNowInfo; NaN until feedback is received"));
+    experimentRecorder->setMetadata(metadata);
+
+    const QString root=QStringLiteral("MicroSystemExperiments");
+    if(!experimentRecorder->startTrial(root)){
+        handleRecorderError(QStringLiteral("Unable to start experiment recording."));
+        return;
+    }
+
+    QMetaObject::invokeMethod(decision_task->imageCollect,
+                              "setExperimentRecording",
+                              Qt::QueuedConnection,
+                              Q_ARG(bool,true));
+    ui->recordingStatusLabel->setText(QStringLiteral("ON"));
+    ui->trialIdValueLabel->setText(experimentRecorder->trialId());
+    ui->frameCountValueLabel->setText(QStringLiteral("0"));
+    ui->elapsedTimeValueLabel->setText(QStringLiteral("0.000 s"));
+    ui->startRecording->setEnabled(false);
+    ui->stopRecording->setEnabled(true);
+    stateLabel->setText(QStringLiteral("Recording: %1")
+                        .arg(experimentRecorder->trialDirectory()));
+}
+
+void MainWindow::on_stopRecording_clicked()
+{
+    if(!experimentRecorder->isRecording()){
+        return;
+    }
+
+    QMetaObject::invokeMethod(decision_task->imageCollect,
+                              "setExperimentRecording",
+                              Qt::QueuedConnection,
+                              Q_ARG(bool,false));
+    ui->recordingStatusLabel->setText(QStringLiteral("Stopping..."));
+    ui->stopRecording->setEnabled(false);
+    experimentRecorder->stopTrial();
+    ui->recordingStatusLabel->setText(QStringLiteral("OFF"));
+    ui->startRecording->setEnabled(true);
+    stateLabel->setText(QStringLiteral("Recording saved: %1")
+                        .arg(experimentRecorder->trialDirectory()));
+}
+
+void MainWindow::updateRecordingUi()
+{
+    if(experimentRecorder->isRecording()){
+        ui->elapsedTimeValueLabel->setText(
+            QStringLiteral("%1 s").arg(experimentRecorder->elapsedSeconds(),0,'f',3));
+        const qulonglong count=experimentRecorder->frameCount();
+        const qulonglong dropped=experimentRecorder->droppedFrameCount();
+        ui->frameCountValueLabel->setText(
+            dropped==0
+                ? QString::number(count)
+                : QStringLiteral("%1 (dropped %2)").arg(count).arg(dropped));
+    }
+}
+
+void MainWindow::handleRecorderError(const QString &message)
+{
+    stateLabel->setText(QStringLiteral("Recorder error: %1").arg(message));
+}
+
+void MainWindow::markContactEvent()
+{
+    if(!experimentRecorder->isRecording()){
+        return;
+    }
+    experimentRecorder->markEvent(QStringLiteral("manual_contact"));
+    ui->recordingStatusLabel->setText(QStringLiteral("CONTACT MARKED"));
+    QTimer::singleShot(800,this,[this](){
+        if(experimentRecorder->isRecording()){
+            ui->recordingStatusLabel->setText(QStringLiteral("ON"));
+        }
+    });
 }
 
 

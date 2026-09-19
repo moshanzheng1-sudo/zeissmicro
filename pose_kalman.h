@@ -50,6 +50,11 @@ public:
     void receivePositions(float centerX, float centerY);
     void penetrationSiteShow(float centerX, float centerY);
 
+public slots:
+    void setExperimentRecording(bool enabled);
+
+public:
+
     vector<Point2f> receiveBarycenterP;
     Pose_XY * pose_xy;
     SBaslerCameraControl *Image_Control;
@@ -73,11 +78,13 @@ public:
 
     QTimer *timerKalman;
     QTimer* timeDecision;
+    bool experimentRecording=false;
 
 
 
 signals:
     void sendImage(const QImage &img );
+    void rawFrameReady(const QImage &img);
 
 
 
