@@ -3770,6 +3770,7 @@ int8_t Pose_Plane::manualMoveControl(int axis, int direction)
         line2DParams.target_y=0;
         line2DParams.target_d=0;
         Ump_Take_Step(&line2DParams);
+        emit manualZMoveCompleted(direction,manipulationSelection);
 //        Ump_Goto_For_Injection(&line2DParams);
         break;
     case 4:
@@ -4048,4 +4049,3 @@ void Pose_Plane::decision()
         break;
     }
 }
-

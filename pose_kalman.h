@@ -52,6 +52,7 @@ public:
 
 public slots:
     void setExperimentRecording(bool enabled);
+    void requestExperimentFrame();
 
 public:
 
@@ -79,6 +80,7 @@ public:
     QTimer *timerKalman;
     QTimer* timeDecision;
     bool experimentRecording=false;
+    int pendingExperimentFrames=0;
 
 
 

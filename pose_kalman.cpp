@@ -188,8 +188,18 @@ void Pose_Kalman::penetrationSiteShow(float centerX, float centerY)
 void Pose_Kalman::setExperimentRecording(bool enabled)
 {
     experimentRecording=enabled;
+    if(!enabled){
+        pendingExperimentFrames=0;
+    }
     if(enabled && funSelect<0){
         funSelect=4;
+    }
+}
+
+void Pose_Kalman::requestExperimentFrame()
+{
+    if(experimentRecording){
+        ++pendingExperimentFrames;
     }
 }
 
@@ -250,10 +260,11 @@ void Pose_Kalman::uiShow()
         // Keep experiment data separate from the resized/annotated preview.
         // copy() detaches the QImage from the cv::Mat buffer before it is sent
         // to the asynchronous recorder thread.
-        if(experimentRecording){
+        if(experimentRecording && pendingExperimentFrames>0){
             const QImage rawFrame=MatToQImage(TrainImg);
             if(!rawFrame.isNull()){
                 emit rawFrameReady(rawFrame.copy());
+                --pendingExperimentFrames;
             }
         }
 //        Time_Focus=((double)getTickCount()-Time_Focus)/getTickFrequency()*1000;

@@ -269,6 +269,7 @@ signals:
     void sendPosShow(float centerX, float centerY);
     void sendNowInfo(double timeControl,double current,int x,int y,int z,int d,double sendVol,double sendFre);
     void sendTargetPose(int x, int y, int z, int d);
+    void manualZMoveCompleted(int direction, int manipulator);
 
 //protected:
 //    void run();

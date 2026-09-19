@@ -93,6 +93,16 @@ MainWindow::MainWindow(QWidget *parent) :
                     static_cast<double>(x) / 1000.0,
                     static_cast<double>(y) / 1000.0);
             }, Qt::DirectConnection);
+    connect(decision_task->pose_plane,&Pose_Plane::manualZMoveCompleted,
+            this,[this](int direction,int manipulator){
+                const bool movedDown=(manipulator==1 && direction==-1) ||
+                                     (manipulator==2 && direction==1);
+                if(movedDown && experimentRecorder->isRecording()){
+                    QMetaObject::invokeMethod(decision_task->imageCollect,
+                                              "requestExperimentFrame",
+                                              Qt::QueuedConnection);
+                }
+            },Qt::QueuedConnection);
     connect(experimentRecorder,&ExperimentRecorder::recorderError,
             this,&MainWindow::handleRecorderError,Qt::QueuedConnection);
     recordingUiTimer=new QTimer(this);
@@ -775,6 +785,9 @@ void MainWindow::on_startRecording_clicked()
                               "setExperimentRecording",
                               Qt::QueuedConnection,
                               Q_ARG(bool,true));
+    QMetaObject::invokeMethod(decision_task->imageCollect,
+                              "requestExperimentFrame",
+                              Qt::QueuedConnection);
     ui->recordingStatusLabel->setText(QStringLiteral("ON"));
     ui->trialIdValueLabel->setText(experimentRecorder->trialId());
     ui->frameCountValueLabel->setText(QStringLiteral("0"));
